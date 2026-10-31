@@ -25,12 +25,33 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      - name: Find Android project
+        id: project
+        run: |
+          ROOT=$(find . -name settings.gradle \
+            -not -path '*/.gradle/*' \
+            -printf '%h\n' | head -n 1)
+
+          if [ -z "$ROOT" ]; then
+            ROOT=$(find . -name settings.gradle.kts \
+              -not -path '*/.gradle/*' \
+              -printf '%h\n' | head -n 1)
+          fi
+
+          if [ -z "$ROOT" ]; then
+            echo "Gradle project not found"
+            exit 1
+          fi
+
+          echo "root=$ROOT" >> "$GITHUB_OUTPUT"
+
       - name: Build APK
+        working-directory: ${{ steps.project.outputs.root }}
         run: gradle assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: DotaArena-APK
-          path: app/build/outputs/apk/debug/*.apk
+          path: '**/app/build/outputs/apk/debug/*.apk'
           if-no-files-found: error
