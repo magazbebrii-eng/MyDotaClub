@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'DotaArenaAndroid.zip'
+      - 'DotaArenaAndroid-mobile.zip'
       - '.github/workflows/android.yml'
 
 jobs:
@@ -16,7 +16,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Java 17
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -40,16 +40,31 @@ jobs:
       - name: Extract Android project
         run: |
           mkdir -p project
-          unzip -q DotaArenaAndroid.zip -d project
+          unzip -q DotaArenaAndroid-mobile.zip -d project
 
       - name: Find Gradle project
         run: |
-          find project -name settings.gradle -o -name settings.gradle.kts
-          find project -name gradlew
+          SETTINGS=$(find project -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)
+
+          if [ -z "$SETTINGS" ]; then
+            echo "ERROR: Gradle settings file not found!"
+            find project -maxdepth 4 -type f | head -100
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$SETTINGS")
+          echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
+          echo "Found project: $PROJECT_DIR"
 
       - name: Build APK
-        run: gradle assembleDebug
-        working-directory: project
+        run: |
+          if [ -f gradlew ]; then
+            chmod +x gradlew
+            ./gradlew assembleDebug
+          else
+            gradle assembleDebug
+          fi
+        working-directory: ${{ env.PROJECT_DIR }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
