@@ -2,11 +2,9 @@
 name: Build Dota Arena APK
 
 on:
-  workflow_dispatch:
   push:
-    paths:
-      - 'DotaArenaAndroid-mobile.zip'
-      - '.github/workflows/android.yml'
+    branches: [main]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -16,59 +14,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Java
+      - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Gradle
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v4
-        with:
-          cmdline-tools-version: 15859902
-
-      - name: Install Android SDK
-        run: |
-          sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
-          yes | sdkmanager --licenses
-
-      - name: Extract Android project
-        run: |
-          mkdir -p project
-          unzip -q DotaArenaAndroid-mobile.zip -d project
-
-      - name: Find Gradle project
-        run: |
-          SETTINGS=$(find project -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)
-
-          if [ -z "$SETTINGS" ]; then
-            echo "ERROR: Gradle settings file not found!"
-            find project -maxdepth 4 -type f | head -100
-            exit 1
-          fi
-
-          PROJECT_DIR=$(dirname "$SETTINGS")
-          echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
-          echo "Found project: $PROJECT_DIR"
-
       - name: Build APK
-        run: |
-          if [ -f gradlew ]; then
-            chmod +x gradlew
-            ./gradlew assembleDebug
-          else
-            gradle assembleDebug
-          fi
-        working-directory: ${{ env.PROJECT_DIR }}
+        run: gradle assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: DotaArena-APK
-          path: project/**/build/outputs/apk/debug/*.apk
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
