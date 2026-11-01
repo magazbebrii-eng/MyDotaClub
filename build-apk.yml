@@ -1,0 +1,82 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Android SDK уже есть на ubuntu-latest, отдельная установка не нужна
+      # (android-actions/setup-android падает с "Failed to find package 'tools'")
+      - name: Install SDK packages
+        run: |
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" "platforms;android-35" "build-tools;35.0.0"
+
+      # В проекте нет gradlew, поэтому ставим Gradle напрямую (AGP 8.7.3 требует Gradle 8.9+)
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      # Если в репозиторий залит сам zip-архив проекта — распаковываем самый свежий
+      - name: Unzip project (if uploaded as zip)
+        run: |
+          Z=$(ls -t *.zip 2>/dev/null | head -1 || true)
+          if [ -n "$Z" ] && [ -z "$(find . -name settings.gradle -not -path './.git/*' | head -1)" ]; then
+            echo "Распаковываю: $Z"; mkdir -p project_unzipped; unzip -oq "$Z" -d project_unzipped
+          fi
+
+      # Ищем папку проекта (где лежит settings.gradle), даже если она не в корне репозитория
+      - name: Find project folder
+        run: |
+          echo "Файлы в репозитории:"; find . -maxdepth 3 -not -path './.git*' | sort | head -60
+          F=$(find . -name settings.gradle -not -path './.git/*' | head -1)
+          if [ -z "$F" ]; then echo "::error::settings.gradle не найден — залей весь проект (app, build.gradle, settings.gradle, gradle.properties)"; exit 1; fi
+          echo "PROJECT_DIR=$(dirname "$F")" >> "$GITHUB_ENV"
+
+      # Вшиваем номер сборки: по нему игра понимает, что вышла новая версия
+      - name: Set build number
+        run: |
+          sed -i "s/__BUILD__/${{ github.run_number }}/" "$PROJECT_DIR/app/src/main/assets/index.html"
+          sed -i "s/versionCode 1/versionCode ${{ github.run_number }}/" "$PROJECT_DIR/app/build.gradle"
+
+      - name: Build debug APK
+        run: gradle -p "$PROJECT_DIR" assembleDebug --no-daemon --console=plain
+
+      - name: Rename APK
+        run: cp "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk" DotaArena-debug.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DotaArena-debug-apk
+          path: DotaArena-debug.apk
+
+      # Каждый пуш в main создаёт релиз build-N с APK — из него игра берёт обновления
+      - name: Publish release (for in-app auto-update)
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Сборка ${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          make_latest: true
+          files: DotaArena-debug.apk
